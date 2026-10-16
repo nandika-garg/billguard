@@ -1,0 +1,7 @@
+*.pem
+*.log
+nohup.out
+__pycache__/
+.env
+test.txt
+.DS_Store
