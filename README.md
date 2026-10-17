@@ -40,6 +40,10 @@ flowchart LR
 
 Limits live in the `CONFIG` dict in `alerts.py`. An alert fires at 80% of a limit, or whenever a wasted resource exists. Identical alerts are not re-sent.
 
+## Screenshots
+
+![Dashboard, all clear](docs/dashboard-ok.png)
+
 ## Files
 
 - `collect.py`: gathers usage and writes `snapshots/<timestamp>.json` to S3
