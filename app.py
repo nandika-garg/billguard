@@ -1,11 +1,25 @@
-from flask import Flask, jsonify, Response
-import boto3, json
+from flask import Flask, jsonify, Response, request
+import boto3, json, os, hmac
 
 REGION = "us-east-1"
 BUCKET = "billguard-nandika-0110"
 
 s3 = boto3.client("s3", region_name=REGION)
 app = Flask(__name__)
+
+USER = "admin"
+PASSWORD = os.environ.get("BILLGUARD_PASSWORD", "")
+
+
+@app.before_request
+def require_login():
+    auth = request.authorization
+    ok = (PASSWORD != "" and auth is not None
+          and hmac.compare_digest(auth.username, USER)
+          and hmac.compare_digest(auth.password or "", PASSWORD))
+    if not ok:
+        return Response("Login required", 401,
+                        {"WWW-Authenticate": 'Basic realm="BillGuard"'})
 
 
 def load_snapshots(limit=40):
