@@ -29,7 +29,7 @@ flowchart LR
 | S3 | Stores a timestamped JSON snapshot per run (the history) and the last alert |
 | SNS | Sends the alert email |
 | IAM role (LabRole via instance profile) | Gives the server access with no keys in code |
-| Security group | SSH and dashboard port 5000 restricted by source address |
+| Security group | SSH only from the EC2 Instance Connect range; dashboard port 5000 limited by source address |
 
 ## What it checks
 
@@ -48,7 +48,7 @@ Limits live in the `CONFIG` dict in `alerts.py`. An alert fires at 80% of a limi
 
 - `collect.py`: gathers usage and writes `snapshots/<timestamp>.json` to S3
 - `alerts.py`: compares the latest snapshot to the limits and sends alerts (`python3 alerts.py test` sends a test email)
-- `app.py`: Flask dashboard with charts, a wasted-resources banner and the last alert
+- `app.py`: Flask dashboard with charts, a wasted-resources banner and the last alert, protected by a password login (HTTP basic auth, user `admin`, password from the `BILLGUARD_PASSWORD` environment variable)
 
 ## Setup
 
@@ -59,30 +59,54 @@ Limits live in the `CONFIG` dict in `alerts.py`. An alert fires at 80% of a limi
 ```
    sudo dnf install -y python3-pip cronie
    sudo systemctl enable --now crond
-   pip3 install -r requirements.txt
+   pip3 install --user -r requirements.txt gunicorn
 ```
-5. Schedule it:
+5. Schedule the collector and alert check:
 ```
    */15 * * * * cd /home/ec2-user && python3 collect.py >> billguard.log 2>&1 && python3 alerts.py >> billguard.log 2>&1
-   @reboot cd /home/ec2-user && nohup python3 app.py >> dashboard.log 2>&1 &
 ```
-6. Open port 5000 in the security group to your own IP and visit `http://INSTANCE_IP:5000`.
+6. Store the dashboard password in a private file that is never committed:
+```
+   echo "BILLGUARD_PASSWORD=YourPasswordHere" > /home/ec2-user/.billguard.env
+   chmod 600 /home/ec2-user/.billguard.env
+```
+7. Run the dashboard as a service. Create `/etc/systemd/system/billguard.service`:
+```
+   [Unit]
+   Description=BillGuard dashboard
+   After=network.target
+
+   [Service]
+   User=ec2-user
+   WorkingDirectory=/home/ec2-user
+   EnvironmentFile=/home/ec2-user/.billguard.env
+   ExecStart=/home/ec2-user/.local/bin/gunicorn -b 0.0.0.0:5000 app:app
+   Restart=always
+
+   [Install]
+   WantedBy=multi-user.target
+```
+   then run `sudo systemctl daemon-reload && sudo systemctl enable --now billguard`.
+8. Open port 5000 in the security group and visit `http://INSTANCE_IP:5000`. Log in as `admin` with your password.
 
 ## Security notes
 
 - No access keys in the code: the instance profile provides credentials.
 - The S3 bucket blocks all public access.
-- The dashboard has no login, so its port is open to a single IP only.
+- The dashboard is protected by a password login. The password lives in a private file on the server (`.billguard.env`, permissions 600) and is not in the repository.
+- SSH is allowed only from the EC2 Instance Connect address range, so the browser Connect button works from any network.
+- The dashboard is served by gunicorn under systemd, which restarts it after a crash or reboot.
 
 ## Limitations
 
 - Learner Lab sessions end after a few hours, so scheduled runs pause between sessions. History continues in S3 when the lab restarts.
+- The instance's public IP changes after every restart.
 - Cost Explorer is not available in Learner Lab, so spend is not tracked; only resource usage is.
-- The dashboard uses plain HTTP.
+- The dashboard uses plain HTTP, so the login password is not encrypted in transit. Use a password you do not use elsewhere.
 
 ## Future work
 
-- HTTPS via a load balancer or Nginx
+- HTTPS for the dashboard (needs a domain name and a certificate)
 - Cost Explorer integration and spend projection in a standard AWS account
 - Optional auto-stop of idle instances
 - S3 lifecycle rule to expire old snapshots
