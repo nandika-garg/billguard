@@ -31,7 +31,7 @@ def load_snapshots(limit=40):
     for k in sorted(keys)[-limit:]:
         body = s3.get_object(Bucket=BUCKET, Key=k)["Body"].read()
         snaps.append(json.loads(body))
-    return snaps
+    return snaps, len(keys)
 
 
 def load_last_alert():
@@ -52,7 +52,7 @@ def load_month_cost():
 
 @app.route("/api/data")
 def data():
-    snaps = load_snapshots()
+    snaps, total = load_snapshots()
     series = [{
         "t": s["timestamp"],
         "instances": len(s["instances"]),
@@ -64,6 +64,7 @@ def data():
         "latest": snaps[-1] if snaps else None,
         "last_alert": load_last_alert(),
         "month_cost": load_month_cost(),
+        "total": total,
     })
 
 
@@ -118,7 +119,7 @@ async function load(){
   document.getElementById('c_s3').textContent = (L.s3.bytes/1024).toFixed(1);
   const waste = L.unattached_volumes.length + L.unused_elastic_ips.length;
   document.getElementById('c_waste').textContent = waste;
-document.getElementById('c_count').textContent = d.series.length;
+document.getElementById('c_count').textContent = d.total;
   const mc = d.month_cost;
   document.getElementById('c_cost').textContent = mc ? '$' + mc.total_usd.toFixed(2) : 'n/a';
   document.getElementById('c_wcost').textContent = L.est ? '$' + L.est.waste_monthly_usd.toFixed(2) : 'n/a';
