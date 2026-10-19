@@ -1,5 +1,5 @@
 from flask import Flask, jsonify, Response, request
-import boto3, json, os, hmac
+import boto3, json, os, hmac, datetime
 
 REGION = "us-east-1"
 BUCKET = "billguard-nandika-0110"
@@ -42,6 +42,14 @@ def load_last_alert():
         return None
 
 
+def load_month_cost():
+    key = "cost/" + datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m") + ".json"
+    try:
+        return json.loads(s3.get_object(Bucket=BUCKET, Key=key)["Body"].read())
+    except Exception:
+        return None
+
+
 @app.route("/api/data")
 def data():
     snaps = load_snapshots()
@@ -55,6 +63,7 @@ def data():
         "series": series,
         "latest": snaps[-1] if snaps else None,
         "last_alert": load_last_alert(),
+        "month_cost": load_month_cost(),
     })
 
 
@@ -80,7 +89,9 @@ PAGE = '''<!doctype html>
  <div class="card"><span>Running instances</span><b id="c_inst">-</b></div>
  <div class="card"><span>Snapshot storage (KB)</span><b id="c_s3">-</b></div>
  <div class="card"><span>Wasted resources</span><b id="c_waste">-</b></div>
- <div class="card"><span>Snapshots taken</span><b id="c_count">-</b></div>
+<div class="card"><span>Snapshots taken</span><b id="c_count">-</b></div>
+ <div class="card"><span>Est. cost this month</span><b id="c_cost">-</b></div>
+ <div class="card"><span>Waste cost / month</span><b id="c_wcost">-</b></div>
 </div>
 <h3>Running instances over time</h3><canvas id="ch1" height="90"></canvas>
 <h3>Snapshot storage over time (KB)</h3><canvas id="ch2" height="90"></canvas>
@@ -107,7 +118,10 @@ async function load(){
   document.getElementById('c_s3').textContent = (L.s3.bytes/1024).toFixed(1);
   const waste = L.unattached_volumes.length + L.unused_elastic_ips.length;
   document.getElementById('c_waste').textContent = waste;
-  document.getElementById('c_count').textContent = d.series.length;
+document.getElementById('c_count').textContent = d.series.length;
+  const mc = d.month_cost;
+  document.getElementById('c_cost').textContent = mc ? '$' + mc.total_usd.toFixed(2) : 'n/a';
+  document.getElementById('c_wcost').textContent = L.est ? '$' + L.est.waste_monthly_usd.toFixed(2) : 'n/a';
   const st = document.getElementById('status');
   if(waste === 0){ st.className='ok'; st.textContent='No wasted resources found in the latest snapshot.'; }
   else {
